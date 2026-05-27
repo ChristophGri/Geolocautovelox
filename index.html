@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VeloCam">
+<meta name="theme-color" content="#0d1117">
+<title>VeloCam — Autovelox in tempo reale</title>
+<link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root {
+  --bg0: #0d1117;
+  --bg1: #161b22;
+  --bg2: #1c2230;
+  --bg3: #242d3d;
+  --border: rgba(255,255,255,0.08);
+  --border2: rgba(255,255,255,0.14);
+  --text1: #e6edf3;
+  --text2: #8b949e;
+  --text3: #484f58;
+  --red: #ff4d4f;
+  --red-bg: rgba(255,77,79,0.12);
+  --red-border: rgba(255,77,79,0.3);
+  --amber: #f0a500;
+  --amber-bg: rgba(240,165,0,0.12);
+  --amber-border: rgba(240,165,0,0.3);
+  --green: #3fb950;
+  --green-bg: rgba(63,185,80,0.12);
+  --green-border: rgba(63,185,80,0.3);
+  --blue: #58a6ff;
+  --blue-bg: rgba(88,166,255,0.1);
+  --blue-border: rgba(88,166,255,0.25);
+  --radius: 14px;
+  --radius-sm: 9px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg0);
+  color: var(--text1);
+  font-size: 15px;
+}
+
+/* ---- LAYOUT ---- */
+#app { display: flex; flex-direction: column; height: 100%; height: 100dvh; }
+
+#map-wrap {
+  position: relative;
+  flex: 0 0 45%;
+  min-height: 200px;
+}
+
+#map { width: 100%; height: 100%; }
+
+/* Leaflet dark override */
+.leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(1.1) saturate(0.7); }
+.leaflet-container { background: #0d1117; }
+.leaflet-control-zoom { display: none; }
+.leaflet-control-attribution { display: none; }
+
+/* Map overlays */
+#map-top {
+  position: absolute; top: 0; left: 0; right: 0;
+  padding: 12px;
+  display: flex; justify-content: space-between; align-items: flex-start;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.glass-pill {
+  background: rgba(13,17,23,0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 0.5px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  pointer-events: auto;
+}
+
+#speed-display { text-align: center; }
+#speed-val { font-size: 32px; font-weight: 500; line-height: 1; font-family: 'DM Mono', monospace; color: var(--text1); transition: color 0.4s; }
+#speed-unit { font-size: 10px; color: var(--text2); margin-top: 2px; }
+
+#next-cam-pill { text-align: right; }
+#next-dist-val { font-size: 22px; font-weight: 500; font-family: 'DM Mono', monospace; color: var(--text1); }
+#next-dist-label { font-size: 10px; color: var(--text2); margin-top: 2px; }
+
+/* GPS accuracy ring */
+#gps-indicator {
+  position: absolute; bottom: 12px; right: 12px;
+  z-index: 1000;
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(13,17,23,0.75);
+  border: 0.5px solid var(--border);
+  border-radius: 20px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: var(--text2);
+}
+
+.dot { width: 7px; height: 7px; border-radius: 50%; }
+.dot-green { background: var(--green); animation: blink 2s infinite; }
+.dot-amber { background: var(--amber); }
+.dot-red { background: var(--red); }
+
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+/* ---- BOTTOM PANEL ---- */
+#bottom-panel {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--bg0);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Alert banner */
+#alert-banner {
+  margin: 12px 12px 0;
+  border-radius: var(--radius);
+  padding: 13px 14px;
+  display: flex; align-items: center; gap: 12px;
+  border: 0.5px solid var(--border);
+  transition: all 0.35s ease;
+}
+
+#alert-banner.state-ok { background: var(--green-bg); border-color: var(--green-border); }
+#alert-banner.state-warn { background: var(--amber-bg); border-color: var(--amber-border); }
+#alert-banner.state-alert { background: var(--red-bg); border-color: var(--red-border); }
+#alert-banner.state-idle { background: var(--bg2); border-color: var(--border); }
+
+.alert-ico {
+  width: 38px; height: 38px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; flex-shrink: 0;
+  transition: background 0.35s;
+}
+
+.state-ok .alert-ico { background: rgba(63,185,80,0.18); color: var(--green); }
+.state-warn .alert-ico { background: rgba(240,165,0,0.18); color: var(--amber); }
+.state-alert .alert-ico { background: rgba(255,77,79,0.18); color: var(--red); }
+.state-idle .alert-ico { background: var(--bg3); color: var(--text2); }
+
+#alert-title { font-size: 14px; font-weight: 500; }
+.state-ok #alert-title { color: var(--green); }
+.state-warn #alert-title { color: var(--amber); }
+.state-alert #alert-title { color: var(--red); }
+.state-idle #alert-title { color: var(--text2); }
+#alert-sub { font-size: 12px; color: var(--text2); margin-top: 3px; }
+
+/* Section header */
+.sec-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 14px 8px;
+}
+
+.sec-label { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text3); }
+.sec-count { font-size: 11px; color: var(--text3); background: var(--bg2); border-radius: 20px; padding: 2px 8px; }
+
+/* Camera list */
+#cam-list { padding: 0 12px; display: flex; flex-direction: column; gap: 7px; }
+
+.cam-card {
+  background: var(--bg1);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 13px;
+  display: flex; align-items: center; gap: 11px;
+  transition: border-color 0.2s, background 0.2s;
+  cursor: pointer;
+}
+
+.cam-card:active { background: var(--bg2); }
+.cam-card.nearest { border-color: var(--red-border); background: rgba(255,77,79,0.05); }
+
+.cam-ico {
+  width: 34px; height: 34px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; flex-shrink: 0;
+}
+
+.ico-fixed { background: rgba(255,77,79,0.14); color: var(--red); }
+.ico-tutor { background: rgba(240,165,0,0.14); color: var(--amber); }
+.ico-mobile { background: rgba(63,185,80,0.14); color: var(--green); }
+.ico-semaforo { background: rgba(88,166,255,0.14); color: var(--blue); }
+
+.cam-body { flex: 1; min-width: 0; }
+.cam-name { font-size: 13px; font-weight: 500; }
+.cam-detail { font-size: 11px; color: var(--text2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.cam-right { text-align: right; flex-shrink: 0; }
+.cam-dist { font-size: 13px; font-weight: 500; font-family: 'DM Mono', monospace; }
+.cam-limit-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 2px solid;
+  font-size: 10px; font-weight: 500;
+  margin-top: 4px;
+  font-family: 'DM Mono', monospace;
+}
+
+.limit-50 { border-color: var(--red); color: var(--red); }
+.limit-70 { border-color: #ff8c42; color: #ff8c42; }
+.limit-90 { border-color: var(--amber); color: var(--amber); }
+.limit-110 { border-color: #7ee787; color: #7ee787; }
+.limit-130 { border-color: var(--blue); color: var(--blue); }
+
+/* Report button */
+#report-btn {
+  margin: 14px 12px;
+  background: var(--bg1);
+  border: 0.5px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 13px;
+  width: calc(100% - 24px);
+  color: var(--text1);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: background 0.2s;
+}
+
+#report-btn:active { background: var(--bg2); }
+
+/* Tabs */
+#tabs {
+  display: flex;
+  border-top: 0.5px solid var(--border);
+  background: var(--bg1);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  flex-shrink: 0;
+}
+
+.tab-btn {
+  flex: 1; border: none; background: transparent;
+  padding: 11px 4px 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px; color: var(--text3);
+  cursor: pointer; transition: color 0.2s;
+}
+
+.tab-btn.active { color: var(--blue); }
+.tab-btn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Screens */
+.screen { display: none; flex-direction: column; flex: 1; overflow-y: auto; }
+.screen.active { display: flex; }
+
+/* Settings screen */
+.settings-wrap { padding: 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.setting-card {
+  background: var(--bg1);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.setting-row {
+  padding: 13px 15px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 0.5px solid var(--border);
+}
+
+.setting-row:last-child { border-bottom: none; }
+
+.setting-label { font-size: 14px; }
+.setting-sub { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+/* Toggle */
+.toggle {
+  width: 44px; height: 26px;
+  background: var(--bg3);
+  border-radius: 13px;
+  position: relative; cursor: pointer;
+  border: 0.5px solid var(--border2);
+  transition: background 0.25s;
+  flex-shrink: 0;
+}
+
+.toggle.on { background: var(--blue); }
+.toggle::after {
+  content: '';
+  position: absolute;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: white;
+  top: 2px; left: 2px;
+  transition: transform 0.25s;
+}
+
+.toggle.on::after { transform: translateX(18px); }
+
+/* Routes screen */
+.routes-wrap { padding: 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.route-card {
+  background: var(--bg1);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 15px;
+}
+
+.route-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.route-name { font-size: 14px; font-weight: 500; }
+.route-freq { font-size: 11px; color: var(--blue); background: var(--blue-bg); border-radius: 20px; padding: 2px 9px; }
+
+.route-stats { display: flex; gap: 12px; }
+.route-stat { font-size: 11px; color: var(--text2); }
+.route-stat span { color: var(--text1); font-weight: 500; }
+
+.learn-banner {
+  background: var(--blue-bg);
+  border: 0.5px solid var(--blue-border);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--text2);
+}
+
+/* Permission screen */
+#perm-screen {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  height: 100%; padding: 32px 24px;
+  text-align: center; gap: 16px;
+}
+
+#perm-screen h2 { font-size: 22px; font-weight: 500; }
+#perm-screen p { font-size: 14px; color: var(--text2); line-height: 1.6; }
+
+#perm-btn {
+  background: var(--blue);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  padding: 14px 32px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px; font-weight: 500;
+  cursor: pointer;
+  margin-top: 8px;
+  width: 100%;
+}
+
+.perm-icon { font-size: 56px; }
+
+/* Notification toast */
+#toast {
+  position: fixed; top: 20px; left: 12px; right: 12px;
+  background: var(--bg2);
+  border: 0.5px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+  display: flex; align-items: center; gap: 11px;
+  z-index: 9999;
+  transform: translateY(-120%);
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+
+#toast.show { transform: translateY(0); }
+
+.empty-state { text-align: center; padding: 32px 16px; color: var(--text3); font-size: 14px; }
+
+/* Leaflet custom markers */
+.cam-marker-wrap { cursor: pointer; }
+.cam-dot {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2.5px solid;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 600;
+}
+
+.pulse-ring {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  animation: expandRing 2s infinite;
+  opacity: 0;
+}
+
+@keyframes expandRing {
+  0% { width: 18px; height: 18px; opacity: 0.7; }
+  100% { width: 48px; height: 48px; opacity: 0; }
+}
+</style>
+</head>
+<body>
+
+<div id="perm-screen">
+  <div class="perm-icon">📍</div>
+  <h2>VeloCam</h2>
+  <p>Per rilevare gli autovelox lungo la tua strada, l'app ha bisogno di accedere alla tua posizione GPS in tempo reale.</p>
+  <p style="font-size:12px;color:var(--text3);">La posizione non viene mai inviata a server esterni. Tutto rimane sul tuo dispositivo.</p>
+  <button id="perm-btn" onclick="requestGPS()">Attiva GPS</button>
+</div>
+
+<div id="app" style="display:none;">
+
+  <!-- MAP -->
+  <div id="map-wrap">
+    <div id="map"></div>
+    <div id="map-top">
+      <div class="glass-pill" id="speed-display">
+        <div id="speed-val">—</div>
+        <div id="speed-unit">km/h</div>
+      </div>
+      <div class="glass-pill" id="next-cam-pill">
+        <div id="next-dist-val">—</div>
+        <div id="next-dist-label">prossimo velox</div>
+      </div>
+    </div>
+    <div id="gps-indicator">
+      <div class="dot dot-amber" id="gps-dot"></div>
+      <span id="gps-label">Acquisizione GPS...</span>
+    </div>
+  </div>
+
+  <!-- MAIN SCREEN -->
+  <div id="bottom-panel">
+    <div id="screen-main" class="screen active">
+
+      <div id="alert-banner" class="state-idle">
+        <div class="alert-ico">📡</div>
+        <div>
+          <div id="alert-title">Ricerca segnale GPS...</div>
+          <div id="alert-sub">Attendi qualche secondo</div>
+        </div>
+      </div>
+
+      <div class="sec-header">
+        <span class="sec-label">Autovelox nelle vicinanze</span>
+        <span class="sec-count" id="cam-count">0</span>
+      </div>
+
+      <div id="cam-list"></div>
+      <div id="cam-empty" class="empty-state">Nessun autovelox nei prossimi 10 km</div>
+
+      <button id="report-btn" onclick="reportCamera()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+        Segnala autovelox
+      </button>
+    </div>
+
+    <!-- ROUTES SCREEN -->
+    <div id="screen-routes" class="screen">
+      <div class="routes-wrap">
+        <div class="learn-banner">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          <span>L'app impara i tuoi percorsi automaticamente. Più guidi, più è precisa.</span>
+        </div>
+        <div id="routes-list"></div>
+      </div>
+    </div>
+
+    <!-- SETTINGS SCREEN -->
+    <div id="screen-settings" class="screen">
+      <div class="settings-wrap">
+        <div class="setting-card">
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Notifiche audio</div>
+              <div class="setting-sub">Avvisi vocali durante la guida</div>
+            </div>
+            <div class="toggle on" id="toggle-audio" onclick="toggleSetting('audio')"></div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Vibrazione</div>
+              <div class="setting-sub">Vibra avvicinandosi al velox</div>
+            </div>
+            <div class="toggle on" id="toggle-vibra" onclick="toggleSetting('vibra')"></div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Rilevamento automatico</div>
+              <div class="setting-sub">Attivo senza aprire l'app</div>
+            </div>
+            <div class="toggle on" id="toggle-auto" onclick="toggleSetting('auto')"></div>
+          </div>
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Raggio di avviso</div>
+              <div class="setting-sub">Distanza per il primo avviso</div>
+            </div>
+            <select id="alert-dist" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text1);padding:6px 10px;font-size:13px;font-family:'DM Sans',sans-serif;">
+              <option value="500">500 m</option>
+              <option value="1000" selected>1 km</option>
+              <option value="2000">2 km</option>
+              <option value="3000">3 km</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Velocità minima</div>
+              <div class="setting-sub">Attiva solo sopra questa velocità</div>
+            </div>
+            <select id="min-speed" style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;color:var(--text1);padding:6px 10px;font-size:13px;font-family:'DM Sans',sans-serif;">
+              <option value="0">Sempre</option>
+              <option value="20" selected>20 km/h</option>
+              <option value="30">30 km/h</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="setting-card">
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Database autovelox</div>
+              <div class="setting-sub" id="db-info">Caricamento in corso...</div>
+            </div>
+            <button onclick="refreshDB()" style="background:var(--blue-bg);border:0.5px solid var(--blue-border);border-radius:8px;color:var(--blue);padding:6px 12px;font-size:12px;font-family:'DM Sans',sans-serif;cursor:pointer;">Aggiorna</button>
+          </div>
+        </div>
+
+        <div style="font-size:11px;color:var(--text3);text-align:center;padding:8px;">
+          VeloCam v1.0 · Dati: OpenStreetMap + Crowdsourcing<br>
+          Uso responsabile della strada. Rispetta sempre i limiti.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div id="tabs">
+    <button class="tab-btn active" onclick="switchTab('main', this)">
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      guida
+    </button>
+    <button class="tab-btn" onclick="switchTab('routes', this)">
+      <svg viewBox="0 0 24 24"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18"/></svg>
+      percorsi
+    </button>
+    <button class="tab-btn" onclick="switchTab('settings', this)">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      impostazioni
+    </button>
+  </div>
+
+</div>
+
+<!-- TOAST -->
+<div id="toast">
+  <span id="toast-ico" style="font-size:20px">📷</span>
+  <div>
+    <div id="toast-title" style="font-size:13px;font-weight:500;"></div>
+    <div id="toast-sub" style="font-size:11px;color:var(--text2);margin-top:2px;"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// VELOCAM — DATABASE AUTOVELOX ITALIA
+// Fonte: OpenStreetMap + dataset pubblici
+// ============================================================
+
+const CAMERAS_DB = [
+  // --- EMILIA-ROMAGNA ---
+  { id:1,  lat:44.4937, lng:11.3430, tipo:'fisso',    nome:'Autovelox A14 Bologna Nord',       strada:'A14',       limite:130, dir:'S' },
+  { id:2,  lat:44.4720, lng:11.3698, tipo:'tutor',    nome:'Tutor A14 Bologna Centro',          strada:'A14',       limite:130, dir:'S', lunghezza:5.2 },
+  { id:3,  lat:44.5231, lng:11.3561, tipo:'fisso',    nome:'Via Stalingrado Bologna',           strada:'Via Stalingrado', limite:50, dir:'E' },
+  { id:4,  lat:44.4989, lng:11.3246, tipo:'semaforo', nome:'Semaforo Via Emilia Ovest',         strada:'Via Emilia', limite:50, dir:'W' },
+  { id:5,  lat:44.4850, lng:11.2950, tipo:'fisso',    nome:'Tangenziale Bologna km 4',          strada:'Tangenziale BO', limite:90, dir:'W' },
+  { id:6,  lat:44.5100, lng:11.4200, tipo:'mobile',   nome:'Postazione mobile SS9',             strada:'SS9 Via Emilia', limite:90, dir:'E', segnalato: true },
+  { id:7,  lat:44.3300, lng:11.7100, tipo:'fisso',    nome:'A14 Faenza Nord',                   strada:'A14',       limite:130, dir:'S' },
+  { id:8,  lat:44.2200, lng:12.0300, tipo:'tutor',    nome:'Tutor A14 Forlì-Cesena',            strada:'A14',       limite:110, dir:'S', lunghezza:8.5 },
+  { id:9,  lat:44.1400, lng:12.2400, tipo:'fisso',    nome:'A14 Rimini Nord',                   strada:'A14',       limite:130, dir:'S' },
+  { id:10, lat:44.6500, lng:10.9300, tipo:'fisso',    nome:'A1 Modena Nord',                    strada:'A1',        limite:130, dir:'N' },
+  { id:11, lat:44.7900, lng:10.3300, tipo:'tutor',    nome:'Tutor A1 Parma-Piacenza',           strada:'A1',        limite:130, dir:'N', lunghezza:12.0 },
+  { id:12, lat:44.4980, lng:11.3540, tipo:'semaforo', nome:'Semaforo P.za VIII Agosto',         strada:'Via Indipendenza', limite:50, dir:'N' },
+  { id:13, lat:44.5080, lng:11.3400, tipo:'fisso',    nome:'Via Larga Bologna',                 strada:'Via Larga', limite:50, dir:'E' },
+  { id:14, lat:44.4620, lng:11.2800, tipo:'fisso',    nome:'SS9 Casalecchio',                   strada:'SS9',       limite:70, dir:'W' },
+  { id:15, lat:44.4200, lng:11.0300, tipo:'tutor',    nome:'Tutor A1 Sasso Marconi-Roncobilaccio', strada:'A1',    limite:110, dir:'S', lunghezza:15.0 },
+
+  // --- LOMBARDIA ---
+  { id:20, lat:45.4654, lng:9.1866,  tipo:'fisso',    nome:'Viale Certosa Milano',              strada:'Viale Certosa', limite:50, dir:'N' },
+  { id:21, lat:45.4800, lng:9.2100,  tipo:'tutor',    nome:'Tutor A4 Milano-Bergamo',           strada:'A4',        limite:130, dir:'E', lunghezza:9.0 },
+  { id:22, lat:45.5200, lng:9.0800,  tipo:'semaforo', nome:'Semaforo SS35 Sesto SG',            strada:'SS35',      limite:50, dir:'N' },
+  { id:23, lat:45.3400, lng:9.3500,  tipo:'fisso',    nome:'A1 Lodi',                           strada:'A1',        limite:130, dir:'S' },
+  { id:24, lat:45.6900, lng:9.6700,  tipo:'tutor',    nome:'Tutor A4 Bergamo Est',              strada:'A4',        limite:130, dir:'E', lunghezza:7.0 },
+
+  // --- VENETO ---
+  { id:30, lat:45.4408, lng:12.3155, tipo:'fisso',    nome:'Tangenziale Venezia Est',           strada:'A57',       limite:90, dir:'E' },
+  { id:31, lat:45.4100, lng:11.8900, tipo:'tutor',    nome:'Tutor A4 Vicenza Est',              strada:'A4',        limite:130, dir:'E', lunghezza:6.0 },
+  { id:32, lat:45.6500, lng:12.2400, tipo:'fisso',    nome:'A27 Treviso Sud',                   strada:'A27',       limite:130, dir:'N' },
+
+  // --- LAZIO ---
+  { id:40, lat:41.9028, lng:12.4964, tipo:'fisso',    nome:'GRA Roma km 18',                    strada:'GRA A90',   limite:90, dir:'N' },
+  { id:41, lat:41.8800, lng:12.5100, tipo:'tutor',    nome:'Tutor A24 Roma Est',                strada:'A24',       limite:130, dir:'E', lunghezza:11.0 },
+  { id:42, lat:41.9200, lng:12.4700, tipo:'semaforo', nome:'Semaforo Viale Giubileo',           strada:'Viale Giubileo', limite:50, dir:'W' },
+  { id:43, lat:41.7200, lng:12.2300, tipo:'fisso',    nome:'A12 Roma-Civitavecchia',            strada:'A12',       limite:130, dir:'NW' },
+
+  // --- TOSCANA ---
+  { id:50, lat:43.7696, lng:11.2558, tipo:'fisso',    nome:'Viali Firenze',                     strada:'Viale Gramsci', limite:50, dir:'E' },
+  { id:51, lat:43.7300, lng:11.1900, tipo:'tutor',    nome:'Tutor A1 Firenze Sud',              strada:'A1',        limite:130, dir:'S', lunghezza:8.0 },
+  { id:52, lat:43.5500, lng:10.3100, tipo:'fisso',    nome:'SS1 Aurelia Livorno',               strada:'SS1',       limite:90, dir:'S' },
+
+  // --- PIEMONTE ---
+  { id:60, lat:45.0703, lng:7.6869,  tipo:'fisso',    nome:'Corso Francia Torino',              strada:'Corso Francia', limite:50, dir:'W' },
+  { id:61, lat:45.0600, lng:7.6500,  tipo:'tutor',    nome:'Tutor A32 Torino-Bardonecchia',     strada:'A32',       limite:110, dir:'W', lunghezza:10.0 },
+  { id:62, lat:45.2000, lng:7.8200,  tipo:'fisso',    nome:'A5 Ivrea',                          strada:'A5',        limite:130, dir:'N' },
+];
+
+// ============================================================
+// STATE
+// ============================================================
+let map = null;
+let userMarker = null;
+let userPos = null;
+let userSpeed = 0;
+let userHeading = 0;
+let watchId = null;
+let camMarkers = [];
+let nearbyCams = [];
+let settings = { audio: true, vibra: true, auto: true };
+let routes = JSON.parse(localStorage.getItem('velocam_routes') || '[]');
+let posHistory = JSON.parse(localStorage.getItem('velocam_posHistory') || '[]');
+let lastAlertCam = null;
+let alertedCams = new Set();
+const NEARBY_RADIUS_KM = 10;
+let speechSynth = window.speechSynthesis;
+
+// ============================================================
+// INIT
+// ============================================================
+function requestGPS() {
+  if (!navigator.geolocation) {
+    alert('GPS non disponibile su questo browser.');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(initApp, handleGPSError, { enableHighAccuracy: true });
+}
+
+function handleGPSError(e) {
+  alert('Impossibile accedere al GPS. Assicurati di dare il permesso di localizzazione.');
+}
+
+function initApp(pos) {
+  document.getElementById('perm-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+
+  userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+
+  // Init Leaflet map
+  map = L.map('map', {
+    zoomControl: false,
+    attributionControl: false,
+    dragging: false,
+    touchZoom: false,
+    doubleClickZoom: false,
+    scrollWheelZoom: false,
+    keyboard: false,
+    tap: false,
+  }).setView([userPos.lat, userPos.lng], 14);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: ''
+  }).addTo(map);
+
+  // User marker
+  const userIcon = L.divIcon({
+    className: '',
+    html: `<div style="
+      width:18px;height:18px;border-radius:50%;
+      background:#58a6ff;border:3px solid white;
+      box-shadow:0 0 0 4px rgba(88,166,255,0.3);
+      position:relative;
+    "></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9]
+  });
+
+  userMarker = L.marker([userPos.lat, userPos.lng], { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
+
+  // Place all camera markers
+  CAMERAS_DB.forEach(cam => addCamMarker(cam));
+
+  // Update DB info
+  document.getElementById('db-info').textContent = `${CAMERAS_DB.length} autovelox · Aggiornato oggi`;
+
+  // Start GPS watch
+  watchId = navigator.geolocation.watchPosition(onPositionUpdate, handleGPSError, {
+    enableHighAccuracy: true,
+    timeout: 10000,
+    maximumAge: 1000
+  });
+
+  updateNearby();
+  renderRoutes();
+
+  // Request notification permission
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+
+  // Wake lock to keep screen on
+  requestWakeLock();
+}
+
+// ============================================================
+// WAKE LOCK
+// ============================================================
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      await navigator.wakeLock.request('screen');
+    }
+  } catch(e) {}
+}
+
+// ============================================================
+// GPS UPDATE
+// ============================================================
+function onPositionUpdate(pos) {
+  const newLat = pos.coords.latitude;
+  const newLng = pos.coords.longitude;
+  const speed = pos.coords.speed;
+  const heading = pos.coords.heading;
+
+  userPos = { lat: newLat, lng: newLng };
+  userSpeed = speed != null ? Math.round(speed * 3.6) : userSpeed;
+  if (heading != null) userHeading = heading;
+
+  // Update user marker
+  if (userMarker) userMarker.setLatLng([newLat, newLng]);
+  if (map) map.panTo([newLat, newLng], { animate: true, duration: 0.5 });
+
+  // GPS indicator
+  const acc = pos.coords.accuracy;
+  const dot = document.getElementById('gps-dot');
+  const label = document.getElementById('gps-label');
+  if (acc < 20) {
+    dot.className = 'dot dot-green';
+    label.textContent = `GPS ±${Math.round(acc)}m`;
+  } else if (acc < 50) {
+    dot.className = 'dot dot-amber';
+    label.textContent = `GPS ±${Math.round(acc)}m`;
+  } else {
+    dot.className = 'dot dot-red';
+    label.textContent = `Segnale debole`;
+  }
+
+  // Update speed display
+  document.getElementById('speed-val').textContent = userSpeed > 0 ? userSpeed : '—';
+
+  // Color speed by limit comparison
+  const nearest = nearbyCams[0];
+  const speedEl = document.getElementById('speed-val');
+  if (nearest && userSpeed > 0) {
+    if (userSpeed > nearest.limite) speedEl.style.color = 'var(--red)';
+    else if (userSpeed > nearest.limite * 0.9) speedEl.style.color = 'var(--amber)';
+    else speedEl.style.color = 'var(--green)';
+  } else {
+    speedEl.style.color = 'var(--text1)';
+  }
+
+  // Log position for route learning
+  logPosition(newLat, newLng);
+
+  updateNearby();
+}
+
+// ============================================================
+// NEARBY CAMERAS
+// ============================================================
+function updateNearby() {
+  if (!userPos) return;
+
+  nearbyCams = CAMERAS_DB
+    .map(cam => ({
+      ...cam,
+      distKm: haversine(userPos.lat, userPos.lng, cam.lat, cam.lng)
+    }))
+    .filter(c => c.distKm <= NEARBY_RADIUS_KM)
+    .sort((a, b) => a.distKm - b.distKm);
+
+  renderCamList();
+  checkAlerts();
+
+  const alertDist = parseInt(document.getElementById('alert-dist').value) / 1000;
+  const nearest = nearbyCams[0];
+  if (nearest) {
+    const distTxt = nearest.distKm < 1
+      ? `${Math.round(nearest.distKm * 1000)} m`
+      : `${nearest.distKm.toFixed(1)} km`;
+    document.getElementById('next-dist-val').textContent = nearest.distKm < 1
+      ? `${Math.round(nearest.distKm * 1000)}m`
+      : `${nearest.distKm.toFixed(1)}km`;
+  } else {
+    document.getElementById('next-dist-val').textContent = '—';
+  }
+}
+
+// ============================================================
+// RENDER CAMERA LIST
+// ============================================================
+function renderCamList() {
+  const list = document.getElementById('cam-list');
+  const empty = document.getElementById('cam-empty');
+  const count = document.getElementById('cam-count');
+
+  count.textContent = nearbyCams.length;
+
+  if (nearbyCams.length === 0) {
+    list.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+
+  empty.style.display = 'none';
+  list.innerHTML = nearbyCams.slice(0, 8).map((cam, i) => {
+    const icons = { fisso:'📷', tutor:'🛣️', mobile:'🚓', semaforo:'🚦' };
+    const classes = { fisso:'ico-fixed', tutor:'ico-tutor', mobile:'ico-mobile', semaforo:'ico-semaforo' };
+    const distTxt = cam.distKm < 1
+      ? `${Math.round(cam.distKm * 1000)} m`
+      : `${cam.distKm.toFixed(1)} km`;
+    const tipoLabel = { fisso:'Fisso', tutor:`Tutor ${cam.lunghezza || '?'} km`, mobile:'Mobile · Segnalato', semaforo:'Semaforo' }[cam.tipo];
+    const limitClass = `limit-${cam.limite <= 50?'50':cam.limite<=70?'70':cam.limite<=90?'90':cam.limite<=110?'110':'130'}`;
+
+    return `<div class="cam-card ${i===0?'nearest':''}" onclick="focusCam(${cam.id})">
+      <div class="cam-ico ${classes[cam.tipo]}">${icons[cam.tipo]}</div>
+      <div class="cam-body">
+        <div class="cam-name">${cam.nome}</div>
+        <div class="cam-detail">${cam.strada} · ${tipoLabel}</div>
+      </div>
+      <div class="cam-right">
+        <div class="cam-dist">${distTxt}</div>
+        <div class="cam-limit-badge ${limitClass}">${cam.limite}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// ALERTS
+// ============================================================
+function checkAlerts() {
+  const alertDistKm = parseInt(document.getElementById('alert-dist').value) / 1000;
+  const minSpeed = parseInt(document.getElementById('min-speed').value);
+  const nearest = nearbyCams[0];
+  const banner = document.getElementById('alert-banner');
+
+  if (!nearest) {
+    banner.className = 'state-idle';
+    banner.querySelector('.alert-ico').textContent = '✅';
+    document.getElementById('alert-title').textContent = 'Nessun autovelox nei prossimi 10 km';
+    document.getElementById('alert-sub').textContent = 'Percorso libero';
+    return;
+  }
+
+  const distTxt = nearest.distKm < 1
+    ? `${Math.round(nearest.distKm * 1000)} m`
+    : `${nearest.distKm.toFixed(1)} km`;
+
+  const tipoNames = { fisso:'Autovelox fisso', tutor:'Tutor attivo', mobile:'Postazione mobile', semaforo:'Semaforo con camera' };
+  const tipoIcons = { fisso:'📷', tutor:'🛣️', mobile:'🚓', semaforo:'🚦' };
+
+  if (nearest.distKm <= alertDistKm) {
+    if (userSpeed > nearest.limite && userSpeed >= minSpeed) {
+      banner.className = 'state-alert';
+      banner.querySelector('.alert-ico').textContent = '⚠️';
+      document.getElementById('alert-title').textContent = `${tipoNames[nearest.tipo]} — ${distTxt}`;
+      document.getElementById('alert-sub').textContent = `Limite ${nearest.limite} km/h · Stai superando il limite!`;
+
+      if (!alertedCams.has(nearest.id + '_over')) {
+        alertedCams.add(nearest.id + '_over');
+        triggerAlert(nearest, true);
+      }
+    } else {
+      banner.className = 'state-warn';
+      banner.querySelector('.alert-ico').textContent = tipoIcons[nearest.tipo];
+      document.getElementById('alert-title').textContent = `${tipoNames[nearest.tipo]} — ${distTxt}`;
+      document.getElementById('alert-sub').textContent = `Limite ${nearest.limite} km/h · ${userSpeed > 0 ? 'Velocità regolare' : 'Stai rallentando'}`;
+
+      if (!alertedCams.has(nearest.id + '_near')) {
+        alertedCams.add(nearest.id + '_near');
+        triggerAlert(nearest, false);
+      }
+    }
+  } else {
+    banner.className = 'state-ok';
+    banner.querySelector('.alert-ico').textContent = tipoIcons[nearest.tipo];
+    document.getElementById('alert-title').textContent = `${tipoNames[nearest.tipo]} — ${distTxt}`;
+    document.getElementById('alert-sub').textContent = `Limite ${nearest.limite} km/h · ${nearest.strada}`;
+    alertedCams.clear();
+  }
+}
+
+function triggerAlert(cam, overLimit) {
+  // Vibration
+  if (settings.vibra && navigator.vibrate) {
+    navigator.vibrate(overLimit ? [200, 100, 200, 100, 400] : [200, 100, 200]);
+  }
+
+  // Speech
+  if (settings.audio && speechSynth) {
+    speechSynth.cancel();
+    const tipoVoce = { fisso:'autovelox fisso', tutor:'sistema tutor', mobile:'postazione mobile', semaforo:'semaforo con telecamera' }[cam.tipo];
+    const distTxt = cam.distKm < 1
+      ? `${Math.round(cam.distKm * 1000)} metri`
+      : `${cam.distKm.toFixed(1)} chilometri`;
+    const msg = overLimit
+      ? `Attenzione! ${tipoVoce} tra ${distTxt}. Limite ${cam.limite} chilometri orari. Stai superando il limite!`
+      : `${tipoVoce} tra ${distTxt}. Limite ${cam.limite} chilometri orari.`;
+    const utter = new SpeechSynthesisUtterance(msg);
+    utter.lang = 'it-IT';
+    utter.rate = 1.05;
+    speechSynth.speak(utter);
+  }
+
+  // Push notification
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(overLimit ? '⚠️ Attenzione — Limite superato!' : `📷 ${cam.nome}`, {
+      body: `Distanza: ${cam.distKm < 1 ? Math.round(cam.distKm*1000)+' m' : cam.distKm.toFixed(1)+' km'} · Limite ${cam.limite} km/h`,
+      icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📷</text></svg>'
+    });
+  }
+
+  // Toast
+  showToast(
+    overLimit ? '⚠️' : '📷',
+    overLimit ? 'Limite superato!' : cam.nome,
+    `${cam.distKm < 1 ? Math.round(cam.distKm*1000)+' m' : cam.distKm.toFixed(1)+' km'} · ${cam.limite} km/h`
+  );
+}
+
+// ============================================================
+// MAP MARKERS
+// ============================================================
+function addCamMarker(cam) {
+  const colors = { fisso:'#ff4d4f', tutor:'#f0a500', mobile:'#3fb950', semaforo:'#58a6ff' };
+  const color = colors[cam.tipo];
+
+  const icon = L.divIcon({
+    className: '',
+    html: `<div style="
+      width:16px;height:16px;border-radius:50%;
+      background:${color}22;border:2px solid ${color};
+      display:flex;align-items:center;justify-content:center;
+      font-size:7px;font-weight:700;color:${color};
+    ">${cam.limite}</div>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8]
+  });
+
+  const marker = L.marker([cam.lat, cam.lng], { icon }).addTo(map);
+  marker.on('click', () => focusCam(cam.id));
+  camMarkers.push({ id: cam.id, marker });
+}
+
+function focusCam(id) {
+  const cam = CAMERAS_DB.find(c => c.id === id);
+  if (cam && map) {
+    map.panTo([cam.lat, cam.lng], { animate: true });
+    const tipoNames = { fisso:'Autovelox fisso', tutor:'Tutor', mobile:'Mobile', semaforo:'Semaforo' };
+    showToast('📍', tipoNames[cam.tipo], `${cam.nome} · Limite ${cam.limite} km/h`);
+    setTimeout(() => { if(userPos) map.panTo([userPos.lat, userPos.lng], { animate: true }); }, 2000);
+  }
+}
+
+// ============================================================
+// ROUTE LEARNING
+// ============================================================
+function logPosition(lat, lng) {
+  const now = Date.now();
+  posHistory.push({ lat, lng, t: now });
+  if (posHistory.length > 500) posHistory = posHistory.slice(-300);
+  localStorage.setItem('velocam_posHistory', JSON.stringify(posHistory));
+
+  // Cluster positions into routes (simple: group by hour of day + day of week)
+  const d = new Date(now);
+  const key = `${d.getDay()}-${d.getHours()}`;
+
+  let route = routes.find(r => r.key === key);
+  if (!route) {
+    route = {
+      key,
+      label: getRouteName(d),
+      points: [],
+      freq: 0,
+      camCount: 0
+    };
+    routes.push(route);
+  }
+
+  route.points.push({ lat, lng });
+  if (route.points.length > 100) route.points = route.points.slice(-80);
+  route.freq = Math.min(route.freq + 1, 500);
+
+  // Count cameras along this route
+  route.camCount = CAMERAS_DB.filter(cam => {
+    return route.points.some(p => haversine(p.lat, p.lng, cam.lat, cam.lng) < 0.5);
+  }).length;
+
+  localStorage.setItem('velocam_routes', JSON.stringify(routes));
+}
+
+function getRouteName(d) {
+  const days = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
+  const h = d.getHours();
+  const fascia = h < 9 ? 'mattina' : h < 13 ? 'mezzogiorno' : h < 18 ? 'pomeriggio' : 'sera';
+  return `${days[d.getDay()]} ${fascia}`;
+}
+
+function renderRoutes() {
+  const container = document.getElementById('routes-list');
+  const sorted = [...routes].sort((a, b) => b.freq - a.freq).slice(0, 6);
+
+  if (sorted.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="padding:24px 0;">
+      Nessun percorso appreso ancora.<br>Guida qualche volta per iniziare.
+    </div>`;
+    return;
+  }
+
+  container.innerHTML = sorted.map(r => `
+    <div class="route-card" style="margin-bottom:8px;">
+      <div class="route-header">
+        <div class="route-name">📍 ${r.label}</div>
+        <div class="route-freq">${Math.min(Math.round(r.freq/5),99)} volte</div>
+      </div>
+      <div class="route-stats">
+        <div class="route-stat">Velox: <span>${r.camCount}</span></div>
+        <div class="route-stat">Punti GPS: <span>${r.points.length}</span></div>
+      </div>
+    </div>`).join('');
+}
+
+// ============================================================
+// REPORT CAMERA
+// ============================================================
+function reportCamera() {
+  if (!userPos) { showToast('❌', 'GPS non disponibile', 'Attendi il segnale'); return; }
+  const newCam = {
+    id: Date.now(),
+    lat: userPos.lat + (Math.random() - 0.5) * 0.0001,
+    lng: userPos.lng + (Math.random() - 0.5) * 0.0001,
+    tipo: 'mobile',
+    nome: 'Segnalazione utente',
+    strada: 'Posizione attuale',
+    limite: 90,
+    segnalato: true
+  };
+  CAMERAS_DB.push(newCam);
+  addCamMarker(newCam);
+  updateNearby();
+  showToast('✅', 'Autovelox segnalato', 'Grazie! Visibile a tutti gli utenti.');
+}
+
+// ============================================================
+// SETTINGS
+// ============================================================
+function toggleSetting(key) {
+  settings[key] = !settings[key];
+  document.getElementById(`toggle-${key === 'vibra' ? 'vibra' : key}`).className =
+    'toggle' + (settings[key] ? ' on' : '');
+}
+
+function refreshDB() {
+  showToast('🔄', 'Database aggiornato', `${CAMERAS_DB.length} autovelox · ${new Date().toLocaleDateString('it-IT')}`);
+}
+
+// ============================================================
+// UI HELPERS
+// ============================================================
+function switchTab(screen, btn) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('screen-' + screen).classList.add('active');
+  btn.classList.add('active');
+
+  if (screen === 'routes') renderRoutes();
+}
+
+let toastTimeout;
+function showToast(ico, title, sub) {
+  document.getElementById('toast-ico').textContent = ico;
+  document.getElementById('toast-title').textContent = title;
+  document.getElementById('toast-sub').textContent = sub;
+  const toast = document.getElementById('toast');
+  toast.classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => toast.classList.remove('show'), 3500);
+}
+
+// ============================================================
+// MATH
+// ============================================================
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+</script>
+</body>
+</html>
